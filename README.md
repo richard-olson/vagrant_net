@@ -32,7 +32,7 @@ IP Addresses only needed for Juniper auto config
 ```
 vagrant:
     username: vagrant
-    output_folder: /srv/salt/output/
+    output_folder: /srv/salt/output
 ```
 ### Example box dictionary:
 Keys must match Netbox device type slug
