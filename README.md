@@ -5,7 +5,7 @@ time I want to build a test a topology or a technology, I thought it would be ni
 to build it automatically for use in Vagrant, using the source of truth for the
 environment - the IPAM.
 
-## Usage
+## Usage:
 * Clone repo to salt folder
 * Set up pillar with vagrant user and output_folder
 * Set up Netbox topology with:
@@ -24,13 +24,17 @@ environment - the IPAM.
 ## Requirements:
 * Salt bundled with the netbox modules configured with appropriate pillar information (url, token, private_key_file)
 * Align vagrant_net_data.jinja box keys with appropriate vagrant boxes and Netbox names (example provided below)
-* PE IP addresses for circuit terminations must have roles and description assigned
+* PE IP addresses for circuit terminations must have roles against the prefix and
+description against the IP assigned.
 * Juniper vagrant plugin should be installed for any auto config (https://github.com/JNPRAutomate/vagrant-junos)
 * BYO Cisco vagrant boxes as they are not hosted by Hashi. Help on creating them here:  (https://github.com/hpreston/vagrant_net_prog/tree/master/box_building#cisco-csr-1000v)
 
 ## Notes:
 * Circuits/terminations only needed if simulating MPLS/internet provider outside IPAM (so PE isn't managed in IPAM)
-* IP Addresses only needed for Juniper auto config
+* Excluding the PE, IP Addresses are only used for Juniper auto config
+* Folder structure only works for one Netbox tenant, I haven't figured out how to
+pass the tenant in the for loop of `init.sls` to the template itself. Maybe conversion
+ to Python is necessary?
 * At this stage the PE will be created regardless and for every carriage termination,
 not just those of the devices in scope. It's on my TODO.
 * Maximum of 7 devices connected to PE at this stage. Combined with the above dot
