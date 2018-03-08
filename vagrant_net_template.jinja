@@ -1,0 +1,102 @@
+{%- from 'vagrant_net/vagrant_net_data.jinja' import mask,box %}
+{%- set devices = salt['netbox.filter']('dcim', 'devices', role='vagrant-net') %}
+{%- set carrier_prefixes = salt['netbox.filter']('ipam', 'prefixes', role='carriage', status=1 ) %}
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# For Juniper devices, ge-0/0/0.0 defaults to NAT for SSH + management
+# connectivity over Vagrant's forwarded ports. This should configure
+# ge-0/0/1.0 through ge-0/0/7.0 on VirtualBox.
+
+# ENV['VAGRANT_DEFAULT_PROVIDER'] = 'vmware_fusion'
+Vagrant.configure(2) do |config|
+    config.vm.provider "virtualbox" do |vb|
+        vb.cpus = 2
+        vb.gui = false
+        vb.memory = "4096"
+    end
+
+    config.vm.provider "vmware_fusion" do |vf|
+        vf.memory = 512
+        vf.cpus = 2
+        vf.gui = false
+    end
+{%- for device in devices %}
+{%- set interfaces = salt['netbox.filter']('dcim', 'interfaces', device=[device.name])|sort(attribute='name') %}
+    config.vm.define "{{device.name}}" do |{{device.name}}|
+            {{device.name}}.vm.box = "{{box[device.device_type.slug]}}"
+            {{device.name}}.ssh.insert_key = false
+            {{device.name}}.vm.boot_timeout = 240
+            {{device.name}}.vm.synced_folder '.', '/vagrant', disabled: true
+            if Vagrant.has_plugin?("vagrant-vbguest")
+              config.vbguest.auto_update = false
+            end
+    {%- if device.device_type.slug == "vsrx" %}
+            {{device.name}}.vm.hostname = "{{device.name}}"
+            {{device.name}}.vm.provider "virtualbox" do |{{device.name}}v|
+              {{device.name}}v.memory = 512
+            end
+    {%- endif %}
+    {%- if device.device_type.slug == "nexus9kv" %}
+    {# {%- if device.device_type.slug == "nexus9kv" or device.device_type.slug == "csr1000v" %} #}
+    {%- set intcount = 0 %}
+            {{device.name}}.vm.provider "virtualbox" do |{{device.name}}v|
+        {%- for interface in interfaces %}
+        {%- set intcount = intcount + 1 %}
+            {%- if interface.is_connected != False %}
+               {{device.name}}v.customize ['modifyvm',:id,'--nicpromisc{{intcount}}','allow-all']
+            {%- endif %}
+        {%- endfor %}
+            end
+    {%- endif %}
+    {%- for interface in interfaces %}
+        {%- if interface.is_connected != False %}
+            {%- set ip = salt['netbox.filter']('ipam', 'ip-addresses', interface_id=interface.id) %}
+            {%- if ip[0] is defined %}
+            {{device.name}}.vm.network "private_network",
+                {%- if device.device_type.slug == "vsrx" %}
+                                ip: "{{ip[0].address.split('/')[0]}}",
+                                netmask: "{{mask[ip[0].address.split('/')[1]]}}",
+                {%- elif device.device_type.slug == "csr1000v" %}
+                                nic_type: "virtio",
+                                auto_config: false,
+                {%- else %}
+                                auto_config: false,
+                {%- endif %}
+                {%- if interface.circuit_termination != None %}
+                                virtualbox__intnet: "pe-{{device.name}}"
+                {%- elif interface.interface_connection != None and interface.device.id < interface.interface_connection.interface.device.id%}
+                                virtualbox__intnet: "{{device.name}}-{{interface.interface_connection.interface.device.name}}"
+                {%- else %}
+                                virtualbox__intnet: "{{interface.interface_connection.interface.device.name}}-{{device.name}}"
+                {%- endif %}
+            {%- endif %}
+        {%- endif %}
+    {%- endfor %}
+    end
+{%- endfor %}
+    config.vm.define "pe" do |pe|
+            pe.vm.hostname = "pe"
+            pe.vm.box = "juniper/ffp-12.1X47-D15.4-packetmode"
+{%- for prefix in carrier_prefixes %}
+    {%- set subnet_ips = salt['netbox.filter']('ipam', 'ip-addresses', parent=prefix.prefix) %}
+    {%- for ip in subnet_ips %}
+        {%- if ip.description == 'carriage' %}
+            pe.vm.network "private_network",
+                                ip: "{{ip.address.split('/')[0]}}",
+                                netmask: "{{mask[ip.address.split('/')[1]]}}",
+        {%- endif %}
+    {%- endfor %}
+    {%- for ip in subnet_ips %}
+        {%- if ip.interface != None %}
+                                virtualbox__intnet: "pe-{{ip.interface.device.name}}"
+
+        {%- endif %}
+    {%- endfor %}
+{%- endfor %}
+            # Salt Management Path
+            pe.vm.network "private_network",
+                                ip: "172.16.254.21",
+                                netmask: "255.255.255.0"
+    end
+end
